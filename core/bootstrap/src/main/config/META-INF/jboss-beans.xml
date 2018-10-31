@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<deployment xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns="urn:jboss:bean-deployer:2.0">
+
+   <!-- ==================================================================== -->
+    <!-- M3UA -->
+    <!-- M3UAManagement is managing the m3ua side commands -->
+    <!-- ==================================================================== -->
+    <!-- -->
+
+   
+  
+    <!-- ==================================================================== -->
+    <!-- GMLC Management -->
+    <!-- ==================================================================== -->
+	
+    <bean name="MscManagement" class="org.mobicents.gmlc.MscManagement">
+        <constructor>
+            <parameter>MscManagement</parameter>
+        </constructor>
+        <property name="persistDir">${jboss.server.data.dir}</property>
+    </bean>
+	<!--
+    <bean name="MscShellExecutor" class="org.mobicents.gmlc.GmlcShellExecutor">
+        <property name="gmlcManagement">
+            <inject bean="MscManagement" />
+        </property>
+    </bean> 
+	-->
+
+
+</deployment>
