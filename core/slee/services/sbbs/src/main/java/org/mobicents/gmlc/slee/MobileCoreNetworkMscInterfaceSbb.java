@@ -377,7 +377,9 @@ public void onDialogRequest(org.mobicents.slee.resource.map.events.DialogRequest
 	public void onDialogTimeout(org.mobicents.slee.resource.map.events.DialogTimeout evt, ActivityContextInterface aci) {
         this.logger.severe("\nRx :  onDialogTimeout " + evt);
 
-	//HLR	this.handleLocationResponse(MLPResponse.MLPResultType.SYSTEM_FAILURE, null, "DialogTimeout");
+
+
+		this.handleHttpErrorResponse("DialogTimeout");
 	}
 
 	
@@ -415,7 +417,18 @@ public void onDialogRequest(org.mobicents.slee.resource.map.events.DialogRequest
 
 	public void onDialogUserAbort(org.mobicents.slee.resource.map.events.DialogUserAbort event,
 			ActivityContextInterface aci/* , EventContext eventContext */) {
-        this.logger.severe("onDialogUserAbort " + event);
+		this.logger.severe("onDialogUserAbort " + event);
+		XmlMAPDialog xmlMAPDialog = this.getXmlMAPDialog();
+		if (xmlMAPDialog != null) {
+			try {
+				xmlMAPDialog.reset();
+				xmlMAPDialog.abort(event.getUserReason());
+				xmlMAPDialog.setTCAPMessageType(event.getMAPDialog().getTCAPMessageType());
+				this.abortHttpDialog(xmlMAPDialog);
+			} catch( MAPException e) {
+				logger.severe("Error while handling DialogUserAbort", e);
+			}
+		}
 
         //HLR this.handleLocationResponse(MLPResponse.MLPResultType.SYSTEM_FAILURE, null, "DialogUserAbort: " + event);
 	}
@@ -445,29 +458,29 @@ public void onDialogRequest(org.mobicents.slee.resource.map.events.DialogRequest
 	 * Component Events
 	 */
 	public void onInvokeTimeout(org.mobicents.slee.resource.map.events.InvokeTimeout event, ActivityContextInterface aci) {
-        if (this.logger.isFineEnabled()) {
-            this.logger.fine("\nReceived onInvokeTimeout = " + event);
-        }
+      //  if (this.logger.isFineEnabled()) {
+            this.logger.info("Received onInvokeTimeout = " + event);
+        //}
 	}
 
 	public void onErrorComponent(org.mobicents.slee.resource.map.events.ErrorComponent event,
 			ActivityContextInterface aci/* , EventContext eventContext */) {
-        if (this.logger.isFineEnabled()) {
-            this.logger.fine("\nReceived onErrorComponent = " + event);
-        }
+//        if (this.logger.isFineEnabled()) {
+            this.logger.info("Received onErrorComponent = " + event);
+  //      }
 
 		MAPErrorMessage mapErrorMessage = event.getMAPErrorMessage();
 		long error_code = mapErrorMessage.getErrorCode().longValue();
 
-        this.handleLocationResponse( null, "ReturnError: " + String.valueOf(error_code) + " : "
+        this.handleHttpErrorResponse( "ReturnError: " + String.valueOf(error_code) + " : "
                         + event.getMAPErrorMessage());
 	}
 
 	public void onRejectComponent(org.mobicents.slee.resource.map.events.RejectComponent event,
 			ActivityContextInterface aci/* , EventContext eventContext */) {
-        this.logger.severe("\nRx :  onRejectComponent " + event);
+        this.logger.severe("Rx :  onRejectComponent " + event);
 
-        this.handleLocationResponse(null, "RejectComponent: " + event);
+        this.handleHttpErrorResponse("RejectComponent: " + event);
 	}
 
 	
@@ -493,25 +506,27 @@ public void onUnstructuredSSRequest(UnstructuredSSRequest event, ActivityContext
          String mlpClientErrorMessage = null;
 
     try {
-//	response.text= event.getUSSDString().getString(null);
-	if (logger.isInfoEnabled()) {
-		logger.info("Rx UnstructuredSSRequest Indication. USSD String=" + event.getUSSDString().getString(null));
-	}
+	response.text= event.getUSSDString().getString(null);
+	logger.info("Rx UnstructuredSSRequest Indication. USSD String=" + event.getUSSDString().getString(null));
+	
    } catch (MAPException e) {
 		e.printStackTrace();
    }
 
 	
 	//	this.setUnstructuredSSRequest(event);
-	//	this.handleLocationResponse( response, mlpClientErrorMessage);
+	// keep it off	this.handleLocationResponse( response, null);
 	//	logger.info("stored evt = " + this.getUnstructuredSSRequest());
 
 	// this method assumes the xml dialog has been setup during sending a processussdrequest message
 	// in that case, ussdgateway sends this request
 	// however there is another case where ussdgateway send this request as push message.
+	
+
 	if (this.getXmlMAPDialog() != null)
 		this.processReceivedMAPEvent((MAPEvent) event);
 	else {
+		/*   WE DONT WNT TO SEND ANY THING BY NOW
 		try {
 
 		    long invokeId = event.getInvokeId();
@@ -531,6 +546,7 @@ public void onUnstructuredSSRequest(UnstructuredSSRequest event, ActivityContext
 		} catch (Exception e) {
 			  logger.severe("Exception while processing UnstructuredSSRequest ", e);
 		}
+		*/
 	}
 
 
@@ -593,7 +609,7 @@ public void onUnstructuredSSNotifyRequest(UnstructuredSSNotifyRequest event, Act
     public void onPost(net.java.slee.resource.http.events.HttpServletRequestEvent event, 
     		ActivityContextInterface aci, EventContext eventContext) {
 
-//	logger.info("onPost");
+	logger.info("onPost");
       HttpServletRequest httpServletRequest = event.getRequest();
 
  //	System.out.println(httpServletRequest.getPathInfo());
@@ -616,6 +632,8 @@ public void onUnstructuredSSNotifyRequest(UnstructuredSSNotifyRequest event, Act
  
 	ISDNAddressString msisdn = null;
 	String serviceCode = null;
+	SccpAddress origAddress= null;
+	SccpAddress destAddress= null;
 
 
 	XmlMAPDialog xmlMAPDialog = null;
@@ -653,17 +671,33 @@ public void onUnstructuredSSNotifyRequest(UnstructuredSSNotifyRequest event, Act
 					serviceCode = ntfyReq.getUSSDString().getString(null);
 					break;
 						*/
+				case unstructuredSSRequest_Response:
+					final UnstructuredSSResponse unstrSSRes = (UnstructuredSSResponse) rawMessage;
+					logger.info("unhandled unstructedSSRequest_Response");
+					origAddress = xmlMAPDialog.getLocalAddress();
+					logger.info("origAddress="+origAddress);
+					destAddress = xmlMAPDialog.getRemoteAddress();
+					logger.info("destAddress="+destAddress);
+	
+
+					break;
 				case processUnstructuredSSRequest_Request:
 					final ProcessUnstructuredSSRequest processUnstrSSReq = (ProcessUnstructuredSSRequest) rawMessage;
 					msisdn = processUnstrSSReq.getMSISDNAddressString();
 					serviceCode = processUnstrSSReq.getUSSDString().getString(null);
+					logger.info("serviceCode="+serviceCode);
+					msisdn = processUnstrSSReq.getMSISDNAddressString();
+					logger.info("msisdn="+msisdn);
+					origAddress = xmlMAPDialog.getLocalAddress();
+					logger.info("origAddress="+origAddress);
+					destAddress = xmlMAPDialog.getRemoteAddress();
+					logger.info("destAddress="+destAddress);
 					break;
 				}
 			}// for
 		}
 
 
-	logger.info("serviceCode="+serviceCode);
 
 
 	HttpSession httpSession = event.getRequest().getSession(true);
@@ -689,19 +723,19 @@ public void onUnstructuredSSNotifyRequest(UnstructuredSSNotifyRequest event, Act
 	// Table of 29.002 7.3/2
 //	final AddressString destReference = getTargetReference();
 
-	AddressString origReference = this.mapProvider.getMAPParameterFactory()
-	              .createAddressString(AddressNature.international_number, 
- org.mobicents.protocols.ss7.map.api.primitives.NumberingPlan.ISDN, "12345");
-      	AddressString destReference = this.mapProvider.getMAPParameterFactory()
-	              .createAddressString(AddressNature.international_number, 
- 	org.mobicents.protocols.ss7.map.api.primitives.NumberingPlan.ISDN, "67890");
+	AddressString origReference = xmlMAPDialog.getReceivedOrigReference();//
+	//this.mapProvider.getMAPParameterFactory()
+	  //            .createAddressString(AddressNature.international_number, 
+ //org.mobicents.protocols.ss7.map.api.primitives.NumberingPlan.ISDN, "12345");
+		  AddressString destReference = xmlMAPDialog.getReceivedDestReference();
+		  //this.mapProvider.getMAPParameterFactory()
+	        //      .createAddressString(AddressNature.international_number, 
+ 	//org.mobicents.protocols.ss7.map.api.primitives.NumberingPlan.ISDN, "67890");
 
  //       GlobalTitle gt = sccpParameterFact.createGlobalTitle(address, 0, NumberingPlan.ISDN_TELEPHONY, null,
    //             NatureOfAddress.INTERNATIONAL);
-       	SccpAddress origAddress = sccpParameterFact.createSccpAddress(RoutingIndicator.ROUTING_BASED_ON_DPC_AND_SSN,
-		null, 2, 8);
-       	SccpAddress destAddress = sccpParameterFact.createSccpAddress(RoutingIndicator.ROUTING_BASED_ON_DPC_AND_SSN,
-		null, 1, 8);
+//       	origAddress = sccpParameterFact.createSccpAddress(RoutingIndicator.ROUTING_BASED_ON_DPC_AND_SSN, null, 2, 8);
+//       	destAddress = sccpParameterFact.createSccpAddress(RoutingIndicator.ROUTING_BASED_ON_DPC_AND_SSN, null, 1, 8);
 
 
 	MAPDialogSupplementary mapDialog = null;
@@ -775,8 +809,8 @@ public void onUnstructuredSSNotifyRequest(UnstructuredSSNotifyRequest event, Act
 			logger.info("Received session POST");
  
 		if (this.getEventContextCMP() != null) {
-			if (logger.isSevereEnabled())
-				logger.severe("Detected previous event context: " + getEventContextCMP());
+			//if (logger.isSevereEnabled())
+			logger.info("Severe!!! Detected previous event context: " + getEventContextCMP());
 			// TODO: send error
 			return;
 		}
@@ -797,19 +831,26 @@ public void onUnstructuredSSNotifyRequest(UnstructuredSSNotifyRequest event, Act
 
 
 	xmlMAPDialog = deserializeDialog(event);
+
+
+            byte[] data = getEventsSerializeFactory().serialize(xmlMAPDialog);
+
+            logger.info("Got HTTP Response with Payload = \n" + new String(data));
+
+
+
 	this.setXmlMAPDialog(xmlMAPDialog);
 
 	final FastList<MAPMessage> mapMessages = xmlMAPDialog.getMAPMessages();
 
-	logger.info("mapMessages="+mapMessages);
+	logger.info("nmapMessages="+mapMessages);
 
 	if (mapMessages != null) {
 		for (FastList.Node<MAPMessage> n = mapMessages.head(), end = mapMessages.tail(); (n = n.getNext()) != end;) {
 				final MAPMessage rawMessage = n.getValue();
 				final MAPMessageType type = rawMessage.getMessageType();
 
-				if (logger.isInfoEnabled())
-					logger.info("Dialog message type: " + type);
+				logger.info("Dialog message type: " + type);
 
 				switch (type) {
 				case unstructuredSSRequest_Request:
@@ -859,7 +900,7 @@ public void onUnstructuredSSNotifyRequest(UnstructuredSSNotifyRequest event, Act
 	public void onGet(net.java.slee.resource.http.events.HttpServletRequestEvent event, ActivityContextInterface aci,
 			EventContext eventContext) {
 	logger.info("onGet");
-        onRequest(event, aci, eventContext);
+    //    onRequest(event, aci, eventContext);
 	}
 
     /**
@@ -891,39 +932,39 @@ public void onUnstructuredSSNotifyRequest(UnstructuredSSNotifyRequest event, Act
 
 	logger.info("request=" + httpServletRequest);
 	logger.info("httpRequestType="+httpRequestType);
-        String requestingMSISDN = null;
+    String shortCode = null;
 	logger.info("httpServletRequest.getQueryString()="+httpServletRequest.getQueryString());
         switch (httpRequestType) {
             case REST:
-                requestingMSISDN = httpServletRequest.getParameter("code");
+                shortCode = httpServletRequest.getParameter("code");
                 break;
 	    case OPT:
-		requestingMSISDN = httpServletRequest.getParameter("option");
-		break;
+	//	requestingMSISDN = httpServletRequest.getParameter("option");
+			break;
             default:
                 //Silence not for you sendHTTPResult(HttpServletResponse.SC_NOT_FOUND, "Request URI unsupported");
                 return;
         }
 
-        setHttpRequest(new HttpRequest(httpRequestType, requestingMSISDN));
+        setHttpRequest(new HttpRequest(httpRequestType, shortCode));
         if (logger.isInfoEnabled()){
-            logger.info(String.format("Handling %s request, MSISDN: %s", httpRequestType.name().toUpperCase(), requestingMSISDN));
+            logger.info(String.format("Handling %s request, MSISDN: %s", httpRequestType.name().toUpperCase(), shortCode));
         }
 
-        if (requestingMSISDN != null) {
+        if (shortCode != null) {
 	    switch(httpRequestType) {
 		case REST:
-	            eventContext.suspendDelivery();
-	            getSingleMSISDNLocation(requestingMSISDN);
+	     //       eventContext.suspendDelivery();
+	      //      getSingleMSISDNLocation(requestingMSISDN);
 		    break;
 		case OPT:
-	            eventContext.suspendDelivery();
-		    sendOptionRequest(requestingMSISDN);
+	    //        eventContext.suspendDelivery();
+		 //   sendOptionRequest(requestingMSISDN);
 			break;
 	    }
         } else {
-            logger.info("MSISDN is null, sending back -1 for Global Cell Identity");
-            handleLocationResponse( null, "Invalid MSISDN specified");
+            logger.info("short code is null ");
+            handleHttpErrorResponse("Invalid short code specified");
         }
     }
 
@@ -988,6 +1029,8 @@ public void onUnstructuredSSNotifyRequest(UnstructuredSSNotifyRequest event, Act
     /**
      * Retrieve the location for the specified MSISDN via ATI request to the HLR
      */
+
+	 /*
     private void getSingleMSISDNLocation(String requestingMSISDN) {
     
    try {
@@ -1008,12 +1051,8 @@ public void onUnstructuredSSNotifyRequest(UnstructuredSSNotifyRequest event, Act
 		null, 2, 8);
         	destAddress = sccpParameterFact.createSccpAddress(RoutingIndicator.ROUTING_BASED_ON_DPC_AND_SSN,
 		null, 1, 8);
-
-
-
-
-                MAPDialogSupplementary mapDialog = this.mapProvider.getMAPServiceSupplementary().createNewDialog(
-                        MAPApplicationContext.getInstance(MAPApplicationContextName.networkUnstructuredSsContext,
+        MAPDialogSupplementary mapDialog = this.mapProvider.getMAPServiceSupplementary().createNewDialog(
+            MAPApplicationContext.getInstance(MAPApplicationContextName.networkUnstructuredSsContext,
 MAPApplicationContextVersion.version2), origAddress, origRef, destAddress, destRef);
 
 	CBSDataCodingScheme cbs = new CBSDataCodingSchemeImpl(0x0f);
@@ -1043,13 +1082,9 @@ org.mobicents.protocols.ss7.map.api.primitives.NumberingPlan.ISDN, "31628838002"
             }
         
 
-
-
-
-
-
-
       }
+*/
+
 
 	protected SccpAddress getGmlcSccpAddress() {
 		if (this.gmlcSCCPAddress == null) {
@@ -1090,17 +1125,15 @@ org.mobicents.protocols.ss7.map.api.primitives.NumberingPlan.ISDN, "31628838002"
      * @param response CGIResponse on location attempt
      * @param mlpClientErrorMessage Error message to send to client
      */
-    private void handleLocationResponse( CGIResponse response, String mlpClientErrorMessage) {
+	// Previously it was handleLocationResponse( CGIResponse response, String mlpClientErrorMessage)
+    private void handleHttpErrorResponse( String error) {
         HttpRequest request = getHttpRequest();
 
-                	StringBuilder getResponse = new StringBuilder();
+        StringBuilder getResponse = new StringBuilder();
 
-	//		getResponse.append("text=");
-			if (response != null)
-			getResponse.append(response.text);
-
-
-                    this.sendHTTPResult(HttpServletResponse.SC_OK, getResponse.toString());
+	if (error != null) {
+		getResponse.append(error);
+        this.sendHTTPResult(HttpServletResponse.SC_OK, getResponse.toString());	}
     }
 
     /**
@@ -1239,6 +1272,8 @@ org.mobicents.protocols.ss7.map.api.primitives.NumberingPlan.ISDN, "31628838002"
 
 
    private void pushToDevice() throws MAPException {
+
+	logger.info("pushToDevice()");
         MAPDialogSupplementary dialog = this.getMAPDialog();
         if (dialog == null) {
             throw new MAPException("Underlying MAP Dialog is null");
@@ -1251,14 +1286,14 @@ org.mobicents.protocols.ss7.map.api.primitives.NumberingPlan.ISDN, "31628838002"
      * 
      */
     private void pushToDevice(MAPDialogSupplementary dialog) throws MAPException {
-        if (logger.isFinestEnabled())
-            logger.finest("Pushingng to device.");
+      //  if (logger.isFinestEnabled())
+        logger.info("PushToDevice " + dialog.toString());
 
         XmlMAPDialog xmlMAPDialog = this.getXmlMAPDialog();
 
-        MAPUserAbortChoice capUserAbortReason = xmlMAPDialog.getMAPUserAbortChoice();
-        if (capUserAbortReason != null) {
-            dialog.abort(capUserAbortReason);
+        MAPUserAbortChoice mapUserAbortReason = xmlMAPDialog.getMAPUserAbortChoice();
+        if (mapUserAbortReason != null) {
+            dialog.abort(mapUserAbortReason);
             this.resumeHttpEventContext();
             this.endHttpSessionActivity();
             return;
@@ -1287,6 +1322,7 @@ protected void processXmlMAPDialog(XmlMAPDialog xmlMAPDialog, MAPDialogSupplemen
         if (mapMessages != null) {
             for (FastList.Node<MAPMessage> n = mapMessages.head(), end = mapMessages.tail(); (n = n.getNext()) != end;) {
                 Long invokeId = this.processMAPMessageFromApplication(n.getValue(), mapDialog, xmlMAPDialog.getCustomInvokeTimeOut());
+		logger.info("\n new invokeId:"+ invokeId + " message=" + n.getValue());
             }
         }
 	}
@@ -1309,8 +1345,14 @@ protected void processXmlMAPDialog(XmlMAPDialog xmlMAPDialog, MAPDialogSupplemen
 					unstructuredSSRequest.getMSISDNAddressString());
 		case unstructuredSSRequest_Response:
 			UnstructuredSSResponse unstructuredSSResponse = (UnstructuredSSResponse) mapMessage;
+			logger.info("Sending UnstructuredSSResponse with invokeId="+unstructuredSSResponse.getInvokeId());
+			// getting invoke id from userobject
+	//		logger.info("We have got userObject=" + userObject);
 			mapDialogSupplementary.addUnstructuredSSResponse(unstructuredSSResponse.getInvokeId(),
 					unstructuredSSResponse.getDataCodingScheme(), unstructuredSSResponse.getUSSDString());
+	//		mapDialogSupplementary.addUnstructuredSSResponse(Long.parseLong(userObject),
+	//				unstructuredSSResponse.getDataCodingScheme(), unstructuredSSResponse.getUSSDString());
+	
 			break;
 
 		case processUnstructuredSSRequest_Response:
@@ -1369,34 +1411,38 @@ protected void processXmlMAPDialog(XmlMAPDialog xmlMAPDialog, MAPDialogSupplemen
     }
 
 private void processReceivedMAPEvent(MAPEvent event) {
-        XmlMAPDialog dialog = this.getXmlMAPDialog();
-        dialog.reset();
-        dialog.addMAPMessage(event.getWrappedEvent());
+	
+	logger.info("processReceivedMAPEvent");
+	XmlMAPDialog dialog = this.getXmlMAPDialog();
+	if (dialog != null) {
+        	dialog.reset();
+        	dialog.addMAPMessage(event.getWrappedEvent());
+	}
 
         MessageType messageType = null;
 	messageType = event.getMAPDialog().getTCAPMessageType();
-        dialog.setTCAPMessageType(messageType);
-        setXmlMAPDialog(dialog);
-        sendHttpResponse();
+	if (dialog != null) {
+        	dialog.setTCAPMessageType(messageType);
+        	setXmlMAPDialog(dialog);
+	}
 
-        if (messageType == MessageType.End) {
+    sendHttpResponse();
+
+    if (messageType == MessageType.End) {
             // If MAP Dialog is end, lets kill HTTP Session Activity too
             this.endHttpSessionActivity();
-        }
     }
+}
 
-private void sendHttpResponse() {
-        try {
-            if (logger.isFineEnabled())
-                logger.fine("About to send HTTP response.");
+ private void sendHttpResponse() {
+
+	logger.info("About to send HTTP response.");
+
+    try {
 
             XmlMAPDialog dialog = getXmlMAPDialog();
             byte[] data = getEventsSerializeFactory().serialize(dialog);
-
-            if (logger.isFineEnabled()) {
-                logger.fine("Sending HTTP Response Payload = \n" + new String(data));
-            }
-
+            logger.info("Sending HTTP Response Payload = \n" + new String(data));
             EventContext httpEventContext = this.resumeHttpEventContext();
 
             if (httpEventContext == null) {
@@ -1415,13 +1461,49 @@ private void sendHttpResponse() {
                 logger.warning(  "Probably HTTPResponse already sent by HTTP-Servlet-RA. Increase HTTP_REQUEST_TIMEOUT in deploy-config.xml of RA to be greater than TCAP Dialog timeout", npe);
             }
 
-        } catch (XMLStreamException xmle) {
+    } catch (XMLStreamException xmle) {
             logger.severe("Failed to serialize dialog", xmle);
-        } catch (IOException e) {
+    } catch (IOException e) {
             logger.severe("Failed to send answer!", e);
-        }
-
     }
+
+ }
+
+ private void abortHttpDialog(XmlMAPDialog dialog) {
+
+	logger.info("About to send HTTP abort dilog.");
+	this.setXmlMAPDialog(dialog);
+
+    try {
+            byte[] data = getEventsSerializeFactory().serialize(dialog);
+            logger.info("Sending HTTP Response Payload = \n" + new String(data));
+            EventContext httpEventContext = this.resumeHttpEventContext();
+
+            if (httpEventContext == null) {
+                 // TODO: terminate dialog?
+                logger.severe("No HTTP event context, can not deliver response for MapXmlDialog: " + dialog);
+                return;
+            }
+
+            HttpServletRequestEvent httpRequest = (HttpServletRequestEvent) httpEventContext.getEvent();
+            HttpServletResponse response = httpRequest.getResponse();
+            response.setStatus(HttpServletResponse.SC_OK);
+            try {
+                response.getOutputStream().write(data);
+                response.getOutputStream().flush();
+            } catch (NullPointerException npe) {
+                logger.warning(  "Probably HTTPResponse already sent by HTTP-Servlet-RA. Increase HTTP_REQUEST_TIMEOUT in deploy-config.xml of RA to be greater than TCAP Dialog timeout", npe);
+			}
+			// sendHttpResponse();
+			this.endHttpSessionActivity();
+
+    } catch (XMLStreamException xmle) {
+            logger.severe("Failed to serialize dialog", xmle);
+    } catch (IOException e) {
+            logger.severe("Failed to send answer!", e);
+    }
+
+ }
 
            
 
